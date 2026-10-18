@@ -187,19 +187,21 @@ function playRange(a,b,my,hl){
     const s=S[st.i];const sp=spans();
     sp.forEach((x,j)=>x.classList.toggle("chunk",!!hl&&j>=hl[0]&&j<=hl[1]));
     player.setPlaybackRate(st.rate);player.seekTo(a,true);player.playVideo();
-    let started=false,t0=performance.now(),ts=0,tStart=0;
+    let started=false,t0=performance.now(),ts=0,tStart=0,lastT=-1;
     clearInterval(timer);
     timer=setInterval(()=>{
       if(my!==runId){clearInterval(timer);return rej()}
-      const t=player.getCurrentTime();
+      const t=player.getCurrentTime(),now=performance.now();
       if(!started){
-        if(t>=a-0.6&&t<b&&player.getPlayerState()===1){started=true;ts=performance.now();tStart=t}
-        else{if(performance.now()-t0>3000){t0=performance.now();player.seekTo(a,true);player.playVideo()}return}
+        if(t>=a-0.6&&t<b&&player.getPlayerState()===1){started=true;ts=now;tStart=t;lastT=t}
+        else{if(now-t0>4000){t0=now;player.seekTo(a,true);player.playVideo()}return}
       }
-      const est=tStart+(performance.now()-ts)/1000*st.rate;
-      let k=-1;for(let j=0;j<s.w.length;j++){if(t>=s.w[j][0]-0.05)k=j}
-      sp.forEach((x,j)=>x.classList.toggle("now",j===k&&t<b));
-      if(t>=b||est>=b+0.7||t<a-1.5){clearInterval(timer);player.pauseVideo();sp.forEach(x=>x.classList.remove("now","chunk"));res()}
+      // re-sync the clock whenever the player reports a new time; between reports, count real time
+      if(t!==lastT){lastT=t;tStart=t;ts=now}
+      const est=player.getPlayerState()===3?tStart:tStart+(now-ts)/1000*st.rate;
+      let k=-1;for(let j=0;j<s.w.length;j++){if(est>=s.w[j][0]-0.05)k=j}
+      sp.forEach((x,j)=>x.classList.toggle("now",j===k&&est<b));
+      if(est>=b||t>=b||t<a-1.5){clearInterval(timer);player.pauseVideo();sp.forEach(x=>x.classList.remove("now","chunk"));res()}
     },40);
   });
 }
@@ -230,10 +232,13 @@ async function playWord(k){if(recActive)return;stopAll();const my=runId;const s=
 
 // ---------- Recording + recognition ----------
 const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+let recPending=false;
 async function startRec(withOriginal){
-  stopAll();
+  if(recPending)return;
+  stopAll();recPending=true;setStatus("마이크 허용 창이 뜨면 '허용'을 눌러 주세요.");
   try{recStream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true}})}
-  catch(e){setStatus("마이크를 쓸 수 없어요. 주소창 왼쪽 자물쇠에서 마이크를 허용해 주세요.");return}
+  catch(e){recPending=false;setStatus("마이크를 쓸 수 없어요. 주소창 왼쪽 자물쇠에서 마이크를 허용해 주세요.");return}
+  recPending=false;
   recActive=true;const btn=withOriginal?$("shadowBtn"):$("recBtn");btn.textContent="녹음 끝내기";btn.classList.add("rec");
   const chunks=[];
   try{recorder=new MediaRecorder(recStream)}catch(e){recorder=null}
